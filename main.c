@@ -7,7 +7,7 @@
 ******************************************
 * @file main.c
 * @brief Main program body
-* @author Chandler Thornton + Andy Phan
+* @author Chandler Thornton & Andy Phan
 * @version 1.0
 * ----------------------------------------
 * Lab 3
@@ -52,11 +52,13 @@ const LED LED_ARRAY[]= {
 
 void GPIO_Init()
 {
+	//GPIO enable
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN
 						| RCC_AHB2ENR_GPIOBEN
 						| RCC_AHB2ENR_GPIOCEN
 						| RCC_AHB2ENR_GPIOHEN;
 
+	//LED setup
 	GPIOA->MODER &= ~(GPIO_MODER_MODE14 | GPIO_MODER_MODE15);
 	GPIOA->MODER |= (GPIO_MODER_MODE14_0 | GPIO_MODER_MODE15_0);
 	GPIOB->MODER &= ~(GPIO_MODER_MODE7);
@@ -99,6 +101,7 @@ void GPIO_Init()
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3);
 }
 
+//Move SysTick stuff to header
 void SysTick_Handler(void)
 {
 	systick_flag = 1;
@@ -115,6 +118,9 @@ void configureSysTickInterrupt(uint32_t reload_value)
 	SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
 }
 
+/*
+* Attempt at setting up button interrupt but not working as of rn
+*/
 void EXTI2_IRQHandler(void)
 {
     if (EXTI->PR1 & EXTI_PR1_PIF2)
@@ -130,6 +136,7 @@ void EXTI3_IRQHandler(void)
         EXTI->PR1 = EXTI_PR1_PIF3; // Clear pending flag
     }
 }
+
 uint8_t shift_led()
 {
 	LED_ARRAY[current_led].port->ODR &= ~LED_ARRAY[current_led].pin;
@@ -157,6 +164,10 @@ void increment_speed()
 	SysTick->LOAD = SHIFT_SPEEDS[current_speed];
 }
 
+
+/*
+* Further attempt at button stuff not functioning correctly
+*/
 volatile uint32_t button_press_count = 0; 		//Stores final count value @ end of sequence (250k cycles)
 volatile uint32_t button_press_sequence = 0;	//Count value per sequence
 volatile uint32_t button_press_timer = 0;		//Length of sequence
@@ -195,6 +206,10 @@ int main(void)
 	 */
 	GPIO_Init();
 
+	/*
+	*  More button interrupt setup
+	*  Going mostly off documentation for EXTI
+	*/
     EXTI->IMR1 |= (EXTI_IMR1_IM2 | EXTI_IMR1_IM3);
     EXTI->RTSR1 &= ~(EXTI_RTSR1_RT2 | EXTI_RTSR1_RT3);
 	EXTI->FTSR1 |= (EXTI_FTSR1_FT2 | EXTI_FTSR1_FT3);
@@ -212,6 +227,7 @@ int main(void)
     		systick_flag = 0;
     	}
 
+		// For button 
     	debounce_2();
     }
 
