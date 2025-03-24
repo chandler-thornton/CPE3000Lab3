@@ -4,25 +4,37 @@
 #include <stm32l476xx.h>
 
 /**
-******************************************
+************************************************************
 * @file main.c
 * @brief Main program body
-* @author Chandler Thornton & Andy Phan
+* @author Andy Phan, Chandler Thornton
 * @version 1.0
-* ----------------------------------------
-* Lab 3
-******************************************
+* ----------------------------------------------------------
+* GPIO Interfacing Lab
+*
+* Configure the Nucleo-L476RG board so that when the left or right
+* switch is pressed, there will be an external interrupt that will
+* cause the array of 8 LEDs will light up one by one from left
+* to right or right to left, respectively. Every time the LED array
+* reaches the end of either side, it will roll off and continue to
+* the other side speeding up. The speed will increase from slow,
+* medium, to fast and start at slow again to cycle.
+*
+*
+************************************************************
 */
 
 #define SYS_CLK_FREQ 400000
-#define SYSTICK_TRIGGER_SLOW (SYS_CLK_FREQ * 4)
-#define SYSTICK_TRIGGER_MEDIUM (SYS_CLK_FREQ * 2)
-#define SYSTICK_TRIGGER_FAST (SYS_CLK_FREQ * 1)
-#define SYSTICK_DEBOUNCE_TIMER (SYS_CLK_FREQ / 100);
+#define SYSTICK_TRIGGER_SLOW (SYS_CLK_FREQ * 4) //4
+#define SYSTICK_TRIGGER_MEDIUM (SYS_CLK_FREQ * 2) //2
+#define SYSTICK_TRIGGER_FAST (SYS_CLK_FREQ * 1) // 1
+#define SYSTICK_DEBOUNCE_TIMER (SYS_CLK_FREQ / 0.03)
 
-#define startSysTickTimer_MACRO (SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk)
+#define startSysTickTimer_MACRO (SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk);
 
-const uint32_t SHIFT_SPEEDS[] = {SYSTICK_TRIGGER_SLOW, SYSTICK_TRIGGER_MEDIUM, SYSTICK_TRIGGER_FAST};
+const uint32_t SHIFT_SPEEDS[] = {SYSTICK_TRIGGER_SLOW,
+								SYSTICK_TRIGGER_MEDIUM,
+								SYSTICK_TRIGGER_FAST};
 uint8_t current_speed = 0;
 
 uint8_t led_direction = 0;
@@ -50,6 +62,14 @@ const LED LED_ARRAY[]= {
 		{GPIOA, (0x1 << 14)}
 };
 
+//===============================================================
+// GPIO_Init()
+//
+// @param: none
+// @return: none
+//
+// Configures LED GPIO pins
+//===============================================================
 void GPIO_Init()
 {
 	//GPIO enable
@@ -92,25 +112,100 @@ void GPIO_Init()
 						| GPIO_OTYPER_OT3
 						| GPIO_OTYPER_OT13);
 	GPIOH->PUPDR &= ~(GPIO_OTYPER_OT0 | GPIO_OTYPER_OT1);
+}
 
+//==========================================================
+// button_init()
+//
+// @param: none
+// @return: none
+//
+// Configures button GPIO and external interrupt for PA0,1
+//==========================================================
+void button_init()
+{
+
+	GPIOA->MODER &= ~(GPIO_MODER_MODE0 | GPIO_MODER_MODE1);
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD0 | GPIO_PUPDR_PUPD1);
 
 	//Button setup
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
 
-	GPIOA->MODER &= ~(GPIO_MODER_MODE2 | GPIO_MODER_MODE3);
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3);
+	SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI0;
+	SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI1;
+
+	EXTI->IMR1 |= EXTI_IMR1_IM0 | EXTI_IMR1_IM1;
+
+    EXTI->RTSR1 |= (EXTI_RTSR1_RT0 | EXTI_RTSR1_RT1);
+	EXTI->FTSR1 &= ~(EXTI_FTSR1_FT0 | EXTI_FTSR1_FT1);
+
+	EXTI->PR1 |= EXTI_PR1_PIF0 | EXTI_PR1_PIF1;
+
+	NVIC_SetPriority(EXTI0_IRQn, 0);
+	NVIC_EnableIRQ(EXTI0_IRQn);
+	NVIC_SetPriority(EXTI1_IRQn, 0);
+	NVIC_EnableIRQ(EXTI1_IRQn);
 }
 
-//Move SysTick stuff to header
+//==========================================================
+// EXTI0_IRQHandler()
+//
+// @param: none
+// @return: none
+//
+// Sets left button flag & clears EXTI0 pending register
+//==========================================================
+void EXTI0_IRQHandler(void)
+{
+    if (EXTI->PR1 & EXTI_PR1_PIF0)
+    {
+    	led_direction = 0;
+    	EXTI->PR1 |= EXTI_PR1_PIF0; // Clear pending flag}
+    }
+}
+
+//==========================================================
+// EXTI1_IRQHandler()
+//
+// @param: none
+// @return: none
+//
+// Sets right button flag & clears EXTI1 pending register
+//==========================================================
+void EXTI1_IRQHandler(void)
+{
+    if (EXTI->PR1 & EXTI_PR1_PIF1)
+    {
+    	led_direction = 1;
+    	EXTI->PR1 |= EXTI_PR1_PIF1; // Clear pending flag
+    }
+}
+
+//==========================================================
+// SysTick_Handler()
+//
+// @param: none
+// @return: none
+//
+// Sets systick_flag that is polled in main loop
+//=========================================================
 void SysTick_Handler(void)
 {
 	systick_flag = 1;
 }
 
+//==========================================================
+// configureSysTickInterrupt()
+//
+// @param: uint32_t theReloadValue - the reload value for the SysTick timer
+// @return: none
+//
+// Configure hardware so that the SysTick timer will trigger
+//=========================================================
 void configureSysTickInterrupt(uint32_t reload_value)
 {
 	SysTick->CTRL = 0;
-	NVIC_SetPriority(SysTick_IRQn, 7);
+	NVIC_SetPriority(SysTick_IRQn, 0);
 
 	SysTick->LOAD = SYSTICK_TRIGGER_SLOW;
 	SysTick->VAL = 0;
@@ -118,25 +213,14 @@ void configureSysTickInterrupt(uint32_t reload_value)
 	SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
 }
 
-/*
-* Attempt at setting up button interrupt but not working as of rn
-*/
-void EXTI2_IRQHandler(void)
-{
-    if (EXTI->PR1 & EXTI_PR1_PIF2)
-    {
-        EXTI->PR1 = EXTI_PR1_PIF2; // Clear pending flag
-    }
-}
-
-void EXTI3_IRQHandler(void)
-{
-    if (EXTI->PR1 & EXTI_PR1_PIF3)
-    {
-        EXTI->PR1 = EXTI_PR1_PIF3; // Clear pending flag
-    }
-}
-
+//==========================================================
+// shift_led()
+//
+// @param: none
+// @return: none
+//
+// Cycles through LEDs based on direction input using array of LEDs
+//==============================================================
 uint8_t shift_led()
 {
 	LED_ARRAY[current_led].port->ODR &= ~LED_ARRAY[current_led].pin;
@@ -154,9 +238,18 @@ uint8_t shift_led()
 	return current_led;
 }
 
+//===============================================================
+// increment_speed()
+//
+// @param: none
+// @return: none
+//
+// Cycle from slow to fast LED movement with each full cycle
+//===============================================================
 void increment_speed()
 {
-	if(((current_led == 8) && !led_direction) || ((current_led == 0) && led_direction))
+	if(((current_led == 8) && !led_direction)
+			|| ((current_led == 0) && led_direction))
 	{
 		current_speed = (current_speed == 2) ? 0 : current_speed + 1;
 	}
@@ -164,59 +257,19 @@ void increment_speed()
 	SysTick->LOAD = SHIFT_SPEEDS[current_speed];
 }
 
-
-/*
-* Further attempt at button stuff not functioning correctly
-*/
-volatile uint32_t button_press_count = 0; 		//Stores final count value @ end of sequence (250k cycles)
-volatile uint32_t button_press_sequence = 0;	//Count value per sequence
-volatile uint32_t button_press_timer = 0;		//Length of sequence
-volatile bool button_state = 0;
-volatile bool button_pressed = 0;
-
-void debounce_2()
-{
-    volatile bool current_button_state = (GPIOA->IDR & GPIO_IDR_ID3) ? 1 : 0;
-
-    if (current_button_state != button_state)
-    {
-        for (volatile int i = 0; i < 500; i++);
-
-        current_button_state = (GPIOA->IDR & GPIO_IDR_ID3) ? 1 : 0;
-
-        if (button_state == 0 && current_button_state == 1)
-        {
-            led_direction = 1;
-        }
-    }
-
-    button_state = current_button_state;
-}
-
 int main(void)
 {
 	/*
 	 * Initialize SysTick
 	 */
-	configureSysTickInterrupt(s[current_speed]);
+	configureSysTickInterrupt(SHIFT_SPEEDS[current_speed]);
 	startSysTickTimer_MACRO;
 
 	/*
 	 * Initialize GPIO
 	 */
 	GPIO_Init();
-
-	/*
-	*  More button interrupt setup
-	*  Going mostly off documentation for EXTI
-	*/
-    EXTI->IMR1 |= (EXTI_IMR1_IM2 | EXTI_IMR1_IM3);
-    EXTI->RTSR1 &= ~(EXTI_RTSR1_RT2 | EXTI_RTSR1_RT3);
-	EXTI->FTSR1 |= (EXTI_FTSR1_FT2 | EXTI_FTSR1_FT3);
-	NVIC_EnableIRQ(EXTI2_IRQn);
-	NVIC_SetPriority(EXTI2_IRQn, 2);
-	NVIC_EnableIRQ(EXTI3_IRQn);
-	NVIC_SetPriority(EXTI3_IRQn, 2);
+	button_init();
 
     while (1)
     {
@@ -226,9 +279,6 @@ int main(void)
     		increment_speed();
     		systick_flag = 0;
     	}
-
-		// For button 
-    	debounce_2();
     }
 
     return 0;
